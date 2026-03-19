@@ -1,0 +1,546 @@
+; extensions.conf - the Asterisk dial plan
+;
+; Static extension configuration file, used by
+; the pbx_config module. This is where you configure all your
+; inbound and outbound calls in Asterisk.
+;
+; This configuration file is reloaded
+; - With the "dialplan reload" command in the CLI
+; - With the "reload" command (that reloads everything) in the CLI
+
+[general]
+static=yes ;Asterisk se modifica manual. (Nu se va suprascrie sau salva automat)
+writeprotect=n ;Fisierul nu este protejat => putem face modificari.                            ;Daca optiunea este "yes" => read-only
+ 
+[incoming]
+include => internal
+include => public_category3
+
+exten => s,1,Answer() ; Se raspunde la apel
+exten => s,2,Background(vm-enter-num-to-call) ; Reda mesajul "Introduceti numarul"
+exten => s,n,WaitExten(20) ; Asteapta 20 de secunde ca utilizatorul sa formeze o extensie (numar)
+
+[internal]
+
+exten => 611,1, Answer() ; Raspunde la apel
+   same => 2, Playback(demo-echotest) ; Reda mesaj audio predefinit
+   same => 3, Echo() ; Intra in modul de testare eco (vocea se reintoarce)
+   same => 4, Playback(demo-echodone) ; Reda mesaj audio predefinit
+   same => 5, Hangup() ; Inchide apelul dupa executarea comenzii
+
+exten => 1000,1,Dial(SIP/1000,20) ; Apeleaza extensia SIP 1000 cu timeout 20 sec
+
+exten => 2000,1,Dial(IAX2/2000,20)
+
+[public_category3]
+
+exten => 4001,1,AgentCallbackLogin(,,${CALLERIDNUM}@internal) 
+; Autentificare agent in sistemul de cozi folosind ${CALLERIDNUM} ca ID agent
+; @internal seteaza contextul pentru apelul de revenire catre agent
+; agentul va fi considerat disponibil pt orice coada in care este configurat
+
+exten => 4002,1,AgentCallbackLogin(,,1) ; Logout agent din coada. 1 semnaleaza logout imediat al agentului curent
+
+exten => 4000,1,Queue(markq) ; Apeleaza coada de asteptare "markq" si apeleaza automat unul dintre agentii logati
+
+[Abonati_SIP] ; Context destinat exclusiv abonatilor SIP
+
+include => incoming ; Include contextul incoming
+include => MeetMe ; Include accesul la functia MeetMe
+include => MeetMeAdmin ; Include accesul la functiile MeetMeAdmin
+include => MeetMeCount ; Include accesul la functia MeetMeCount
+
+; Numerele obligatorii XYZ
+
+exten => 1223,1,NoOp(Apel 1223 de la: ${CALLERID(num)}.) 
+same => n,Dial(SIP/1223,20) ; Suna utilizatorul SIP, timeout 20 sec
+
+exten => 2223,1,NoOp(Apel 2223 de la: ${CALLERID(num)}.) 
+same => n,Dial(SIP/2223,20) 
+
+; Numere suplimentare pentru conferinta
+
+exten => 5223,1,NoOp(Apel 5223 de la: ${CALLERID(num)}.)
+same => n,Dial(SIP/5223,20)
+
+exten => 6223,1,NoOp(Apel 6223 de la: ${CALLERID(num)}.)
+same => n,Dial(SIP/6223,20) 
+
+
+; Redirectionare catre abonatii IAX (3223, 4223)
+exten => _[34]223,1,Goto(Abonati_IAX,${EXTEN},1) ; Pattern care accepta 3223 si 4223 si le trimite in contextul "Abonati_IAX"
+
+; Redirectionare in caz de apel a numarului restrictionat
+exten => 555,1,Goto(Acces_Restrictionat_SIP,Restrictie,1)
+
+[Abonati_IAX] ; Context destinat exclusiv pentru abonatii IAX
+
+include => incoming  ; Include contextul incoming
+include => SAY ; Inlcude accesul la functiile SAY
+
+; Numere obligatorii XYZ
+exten => 3223,1,NoOp(Apel 3223 de la: ${CALLERID(num)}.)
+same => n,Dial(IAX2/3223,20) ;  Suna utilizatorul IAX, timeout 20 sec
+
+exten => 4223,1,NoOp(Apel 4223 de la: ${CALLERID(num)}.)
+same => n,Dial(IAX2/4223,20)
+
+; Redirectionare catre abonatii SIP (1223,2223,5223,6223)
+exten => _[1256]223,1,Goto(Abonati_SIP,${EXTEN},1)
+
+
+; Redirectionare in caz de apel a numarului restrictionat
+exten => 100,1,Goto(Acces_Restrictionat_IAX,Restrictie,1) 
+
+exten => 1010,1,Goto(Acces_Restrictionat_IAX,Restrictie,1) 
+
+exten => 2002,1,Goto(Acces_Restrictionat_IAX,Restrictie,1)
+
+[Acces_Restrictionat_SIP] ; Context care gestioneaza apelurile catre numerele restrictionate abonatilor SIP
+
+exten => Restrictie,1,NoOp(${CALLERID(num)} a apelat un numar restrictionat!) ; Afiseaza in CLI cine a apelat un numar interzis
+same => n,Ringing() ; Simuleaza tonul de apel
+same => n,Wait(2) ; Se asteapta 2 secunde inainte de mesajul audio
+same => n,Flite("Your subscription does not have acces to this number. Goodbye"); Reda un mesaj audio text-to-speech pentru a informa apelantul ca accesul la   acest numar este blocat
+same => n,Hangup() ; Inchide apelul dupa terminare
+
+[Acces_Restrictionat_IAX] ; Context care gestioneaza apelurile catre numerele restrictionate abonatilor IAX
+
+exten => Restrictie,1,NoOp(${CALLERID(num)} a apelat un numar restrictionat!) ; Afiseaza in CLI cine a apelat un numar interzis
+same => n,Gosub(Generare_Sunete,Sunet_Apel,1) ; Apeleaza eticheta "Sunet_Apel" pentru a simula tonul de apel
+same => n,Flite("Your subscription does not have acces to this number. Goodbye"); Reda un mesaj audio text-to-speech pentru a informa apelantul ca accesul la   acest numar este blocat
+same => n,Goto(Generare_Sunete,Sunet_Inchidere,1) ; Trimite apelul catre eticheta "Sunet_Inchidere", pentru a termina apelul si a genera sunetul de inchidere
+
+;Functii SIP (MeetMe, MeetMeAdmin, MeetMeCount
+
+[MeetMe] ; Contextul pentru functia MeetMe pentru Abonati_SIP
+
+;Functia MeetMe([numar_conferinta],[optiuni],[parola])
+
+exten => 1010,1,NoOp(${CALLERID(num)} initiaza conferinta.)
+same => n,Ringing() ; Simuleaza sunetul de apel
+same => n,Wait(2) ; Pauza de 2 secunde inainte de conectarea in conferinta
+same => n,Answer() ; Se raspunde la apel
+same => n,MeetMe(1010,cPM(default)G(welcome)) ; Se intra in conferinta cu op:
+   ; c - anunta nr de participanti atunci cand cinvea se alatura conferinta        ; P - cere mereu introducerea PIN-ului                                          ; M(default) - reda muzica daca participantul e singur in apel                  ; G(welcome) - reda mesajul vocal welcome la intrare
+same => n,Hangup() ; Inchide apelul dupa iesirea din conferinta
+
+
+[MeetMeAdmin] ; Contextul pentru functia MeetMeAdmin pentru Abonati_SIP
+
+;Functia MeetMeAdmin(numar_conferinta,comanda,[utilizator])
+
+exten => 100,1,NoOp(Se apeleaza meniul de admin de catre: ${CALLERID(num)}.) ;  Se apeleaza 100 pentru functia MeetMeAdmin si se afiseaza in CLI cine a apelat
+same => n,Ringing() ; Simuleaza sunetul de apel
+same => n,Wait(2) ; Pauza de 2 secunde inainte de a se intra in meniu
+same => n,Answer() ; Raspunde la apel
+same => n,Flite("Please enter the admin PIN") ; Reda mesaj audio text-to-speech pentru introducere PIN
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(PIN,,4,,1,) ; Citeste 4 cifre, maxim 5 sec intre cifre, 1 incercare, timeout 10 secunde
+same => n,Gotoif($["${LEN(${PIN})}" = "0"]?Erori,Timp_Expirat_SIP,1) ; Daca nu s-a introdus nimic => redirectionare Timp_Expirat
+same => n,GotoIf($["${PIN}"="5678"]?meniu:Erori,PIN_Gresit,1) ; Verifica daca PIN-ul introdus este corect: daca da, merge in meniu de optiuni, altfel se afiseaza eroare
+same => n(meniu),Flite("For this conference: Press 1 to lock, 2 to unlock, 3 to kick everyone, 4 to mute everyone, 5 to unmute everyone") ; Reda mesaj audio text-to-speech cu optiunile disponibile pentru controlul conferintei
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra (1-5) de la admin, 1 incercare , timeout 10 sec
+same => n,GotoIf($["${optiune}" = "1"]?Optiuni_MeetMeAdmin,lock,1) ; Daca apasa 1 => Blocheaza conferinta
+same => n,GotoIf($["${optiune}" = "2"]?Optiuni_MeetMeAdmin,unlock,1) ; Daca apasa 2 => Deblocheaza conferinta
+same => n,GotoIf($["${optiune}" = "3"]?Optiuni_MeetMeAdmin,kick,1) ; Daca apasa 3 => Elimina toti participantii
+same => n,GotoIf($["${optiune}" = "4"]?Optiuni_MeetMeAdmin,mute,1) ; Daca apasa 4 => Opreste microfoanele tuturor
+same => n,GotoIf($["${optiune}" = "5"]?Optiuni_MeetMeAdmin,unmute,1) ; Daca apasa 5 => Activeaza microfoanele tuturor
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_SIP,1) ; Daca nu se apasa nimic => redirectionare Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_SIP,1) ; Daca se introduce gresit => redirectionare Optiune_Gresita
+
+[Optiuni_MeetMeAdmin] ; Contextul pentru optiunile MeetMeAdmin
+
+exten => lock,1,NoOp(Adminul ${CALLERID(num)} blocheaza conferinta!) 
+same => n,MeetMeAdmin(1010,L) ; Executa comanda L care blocheaza conferinta
+same => n,Playback(conf-lockednow) ; Mesaj audio: conferinta a fost blocata
+same => n,Goto(MeetMeAdmin,100,12) ; Revenire in meniu admin
+
+exten => unlock,1,NoOp(Adminul ${CALLERID(num)} deblocheaza conferinta!)
+same => n,MeetMeAdmin(1010,l) ; Executa comanda l care deblocheaza conferinta 
+same => n,Playback(conf-unlockednow) ; Mesaj audio: conferinta a fost deblocata
+same => n,Goto(MeetMeAdmin,100,12) ; Revenire in meniu admin
+
+exten => kick,1,NoOp(Adminul ${CALLERID(num)} elimina participantii din conferinta!) 
+same => n,MeetMeAdmin(1010,K) ; Executa comanda K care elimina participantii din conferinta
+same => n,Playback(conf-kicked) ; Mesaj audio: participantii au fost exclusi
+same => n,Goto(MeetMeAdmin,100,12) ; Revenire in meniu admin
+
+exten => mute,1,NoOp(Adminul ${CALLERID(num)} dezactiveaza microfoanele tuturor participantilor!)
+same => n,MeetMeAdmin(1010,N) ; Executa comanda N care dezactiveaza microfoanele tuturor din conferinta
+same => n,Playback(conf-muted) ; Mesaj audio: conferinta este in mute
+same => n,Goto(MeetMeAdmin,100,12) ; Revenire in meniul admin 
+
+exten => unmute,1,NoOp(Adminul ${CALLERID(num)} activeaza microfoanele tuturor participantilor!) 
+same =>n,MeetMeAdmin(1010,n) ; Executa comanda n care activeaza microfoanele tuturor din conferinta 
+same => n,Playback(conf-unmuted) ; Mesaj audio: conferinta nu mai este in mute
+same => n,Goto(MeetMeAdmin,100,12) ; Revenire in meniul admin
+
+[MeetMeCount] ; Contextul pentru functia MeetMeCount
+
+;Functia MeetMeCount(numar_conferinta,[Variabila_optionala])
+
+exten => 2002,1,NoOp(${CALLERID(num)} a cerut numarul de participanti in conferinta 1010!) 
+same => n,Ringing() ; Simuleaza tonul de apel 
+same => n,Wait(2) ; Pauza de 2 secunde inainte de raspuns
+same => n,Answer() ; Raspunde la apel 
+same => n,Playback(conf-thereare) ; Mesaj audio
+same => n,MeetMeCount(1010,Nr_participanti) ; Salveaza numarul de participanti  in variabila
+same => n,NoOp(Numar participanti: ${Nr_participanti}.) ; Afisare CLI numar participanti
+same => n,SayNumber(${Nr_participanti}) ; Reda vocal numarul participantilor
+same => n,Playback(conf-peopleinconf) ; Mesaj audio
+same => n,Hangup() ; Inchide apelul dupa executarea comenzii
+
+[SAY] ; Context pentru meniul SAY
+
+exten => 555,1,NoOp(Meniu SAY apelat de: ${CALLERID(num)}.) ; Afisare in CLI cine a apelat meniul
+same => n,Gosub(Generare_Sunete,Sunet_Apel,1) ; Apeleaza eticheta "Sunet_Apel" pentru a simula tonul de apel
+same => n,Answer() ; Raspunde la apel
+same => n,Flite("You are in the SAY functions menu!") ; Reda un mesaj audio text-to-speech in care anunta apelantul ca este in meniul SAY
+same => n,Wait(1) ; Pauza de o secunda intre redarile audio
+same => n,Flite("Press 1 to use SayAlpha, Press 2 to use sayDigits, Press 3 to use SayNumber, Press 4 to use SayPhonetic, Press 5 to use SayUnixTime") ; Reda un mesaj audio text-to-speech in care prezinta apelantului optiunile disponibile
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra de la utilizator (1 cifra, 1 incercare, timeout 10 secunde)
+same => n,GotoIf($["${optiune}" = "1"]?Optiuni_SAY,sayalpha,1) ; Daca apasa 1 => eticheta sayalpha
+same => n,GotoIf($["${optiune}" = "2"]?Optiuni_SAY,saydigits,1) ; Daca apasa 2 => eticheta saydigits
+same => n,GotoIf($["${optiune}" = "3"]?Optiuni_SAY,saynumber,1) ; Daca apasa 3 => eticheta saynumber
+same => n,GotoIf($["${optiune}" = "4"]?Optiuni_SAY,sayphonetic,1) ; Daca apasa 4 => eticheta sayphonetic
+same => n,GotoIf($["${optiune}" = "5"]?Optiuni_SAY,sayunixtime,1) ; Daca apasa 5 => eticheta sayunixtime
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare la Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+[Optiuni_SAY] ; Context pentru functiile SAY
+
+;Functia SayAlpha
+
+exten => sayalpha,1,NoOp(${CALLERID(num)} apeleaza optiunea: ${optiune}!) ; Afisare in CLI cu cine a apelat si optiunea aleasa
+same => n,Wait(2)  ; Pauza de 2 secunde inainte de mesajul audio 
+same => n,Flite("Welcome to the SayAlpha menu. Press one to hear UTCN, two to hear BEST, or three to hear UNIVERSITY, spelled letter by letter.") ; Reda mesaj audio text-to-speech cu optiunile disponibile 
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI cu timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o singura cifra de la apelant (max 1 incercare, timeout 10 secunde)
+same => n,GotoIf($["${optiune}" = "1"]?sayalpha_1,1) ; Daca apasa 1 => eticheta sayalpha_1
+same => n,GotoIf($["${optiune}" = "2"]?sayalpha_2,1) ; Daca apasa 2 => eticheta sayalpha_2
+same => n,GotoIf($["${optiune}" = "3"]?sayalpha_3,1) ; Daca apasa 3 => eticheta sayalpha_3 
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+exten => sayalpha_1,1,NoOp(S-a ales optiunea: ${optiune}!) 
+same => n,SayAlpha(UTCN) ; Reda cuvantul litera cu litera
+same => n,Playback(beep) ; Reda un sunet de beep ca final
+same => n,Flite("Press 1 to repeat, 2 for SayAlpha menu, or 3 for main menu.")
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!)
+same => n,Read(optiune,,1,,1,)  
+same => n,Gotoif($["${optiune}" = "1"]?sayalpha_1,1) ; Daca apasa 1 => repeta cuvantul
+same => n,Gotoif($["${optiune}" = "2"]?sayalpha,1) ; Daca apasa 2 => revine in meniul sayalpha
+same => n,Gotoif($["${optiune}" = "3"]?Reintoarcere_Meniu,1)  ; Daca apasa 3 => revine in meniul principal
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) 
+same => n,Goto(Erori,Optiune_Gresita_IAX,1)
+
+exten => sayalpha_2,1,NoOp(S-a ales optiunea: ${optiune}!)
+same => n,SayAlpha(BEST) 
+same => n,Playback(beep) 
+same => n,Flite("Press 1 to repeat, 2 for SayAlpha menu, or 3 for main menu.") 
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!)
+same => n,Read(optiune,,1,,1,) 
+same => n,Gotoif($["${optiune}" = "1"]?sayalpha_2,1)
+same => n,Gotoif($["${optiune}" = "2"]?sayalpha,1)
+same => n,Gotoif($["${optiune}" = "3"]?Reintoarcere_Meniu,1) 
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1)
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) 
+
+exten => sayalpha_3,1,NoOp(S-a ales optiunea: ${optiune}!)
+same => n,SayAlpha(UNIVERSITY)
+same => n,Playback(beep)
+same => n,Flite("Press 1 to repeat, 2 for SayAlpha menu, or 3 for main menu.") 
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!)
+same => n,Read(optiune,,1,,1,) 
+same => n,Gotoif($["${optiune}" = "1"]?sayalpha_3,1)
+same => n,Gotoif($["${optiune}" = "2"]?sayalpha,1) 
+same => n,Gotoif($["${optiune}" = "3"]?Reintoarcere_Meniu,1)
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat,1)
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ;
+
+;Functia SAYDIGITS
+
+exten => saydigits,1,NoOp(${CALLERID(num)} a apelat optiunea: ${optiune}!) ; Afisare in CLI cine a apelat si ce optiune a ales
+same => n,Wait(2) ; Pauza de 2 secunde inainte de mesajul audio
+same => n,Flite("Now reading the number 1907, digit by digit.") ; Mesaj audio text-to-speech care anunta numarul ce urmeaza sa fie rostit cifra cu cifra
+same => n,SayDigits(1907) ; Pronunta fiecare cifra: 1 9 0 7
+same => n,Playback(beep) ; Sunet de beep ca final 
+same => n,Flite("Press 1 to repeat, or 2 for main menu.") ; Mesaj audio text-to-speech cu optiunile disponibile pentru utilizator
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra de la utilizator (1 cifra, 1 incercare, timeout 10 secunde)
+same => n,Gotoif($["${optiune}" = "1"]?saydigits,1) ; Daca apasa 1 => repeta secventa cifrelor
+same => n,Gotoif($["${optiune}" = "2"]?Reintoarcere_Meniu,1) ; Daca apasa 2 => revine la meniul principal
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare la Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+;Functia SAYNUMBER
+
+exten => saynumber,1,NoOp(${CALLERID(num)} a apelat optiunea: ${optiune}!) ; Afisare in CLI cine a apelat si ce optiune a ales
+same => n,Wait(2) ; Asteapta 2 secunde inainte de mesajul audio
+same => n,Flite("Enter a number with maximum of 4 digits. I will say it back to you.") ; Reda un mesaj audio text-to-speech in care utilizatorul este informat de numarul maxim de cifre posibile pe care le poate introduce
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(numar,,4,,1,) ; Citeste maxim 4 cifre de la utilizator (4 cifre, 1 incercare, timeout 10 secunde)
+same => n,Gotoif($["${LEN(${numar})}" = "0"]?Erori,Timp_Expirat,1) ; Daca nu s-a introdus nici o cifra => redirectionare la Timp_Expirat
+same => n,NoOp(Numarul tastat este: ${numar}!) ; Afisare in CLI a numarului tastat de catre utilizator
+same => n,Flite("The number you entered is") ; Reda un mesaj audio text-to-speech care anunta ca urmeaza sa fie rostit numarul introdus
+same => n,SayNumber(${numar}) ; Reda audio numarul introdus
+same => n,Playback(beep) ; Sunet de beep ca final 
+same => n,Flite("Press 1 to try again, or 2 for main menu.") ; Reda un mesaj audio text-to-speech in care apelantul este anuntat despre optiunile disponibile
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra de la utilizator (1 cifra, 1 incercare, timeout 10 secunde)
+same => n,Gotoif($["${optiune}" = "1"]?saynumber,1) ; Daca apasa 1 => repeta secventa cu numarul introdus
+same => n,Gotoif($["${optiune}" = "2"]?Reintoarcere_Meniu,1) ; Daca apasa 2 => revine la meniul principal
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare la Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+;Functia SayPhoenetic 
+
+exten => sayphonetic,1,NoOp(${CALLERID(num)} a apelat optiunea: ${optiune}!) ; Afisare in CLI cine a apelat si ce optiune a ales
+same => n,Wait(2) ; Asteapta 2 secunde inainte de mesajul audio 
+same => n,Flite("Welcome to the SayPhonetic menu. Press one to hear the phonetic spelling of CFR, or two to hear the phonetic spelling of CLUJ.") ; Reda un mesaj audio text-to-speech in care apelantul este informat despre optiunile disponibile
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra de la utilizator (1 cifra, 1 incercare, timeout 10 secunde)
+same => n,Gotoif($["${optiune}" = "1"]?sayphonetic_1,1) ; Daca apasa 1 => eticheta sayphonetic_1
+same => n,Gotoif($["${optiune}" = "2"]?sayphonetic_2,1) ; Daca apasa 2 => eticheta sayphonetic_2
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare la Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+exten => sayphonetic_1,1,NoOp(S-a ales optiunea: ${optiune}!) 
+same => n,Flite("Now reading the phonetic spelling of CFR.") 
+same => n,Wait(2) 
+same => n,SayPhonetic(CFR) ; Reda literele C-F-R folosind alfabetul fonetic
+same => n,Playback(beep) 
+same => n,Flite("Press 1 to repeat, 2 for SayPhonetic menu, or 3 for main menu.")
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!)
+same => n,Read(optiune,,1,,1,) 
+same => n,Gotoif($["${optiune}" = "1"]?sayphonetic_1,1) 
+same => n,Gotoif($["${optiune}" = "2"]?sayphonetic,1) 
+same => n,Gotoif($["${optiune}" = "3"]?Reintoarcere_Meniu,1) 
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) 
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) 
+
+exten => sayphonetic_2,1,NoOp(S-a ales optiunea: ${optiune}!)
+same => n,Flite("Now reading the phonetic spelling of CLUJ") 
+same => n,Wait(2) 
+same => n,SayPhonetic(CLUJ) 
+same => n,Playback(beep) 
+same => n,Flite("Press 1 to repeat, 2 for SayPhonetic menu, or 3 for main menu.") 
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!)
+same => n,Read(optiune,,1,,1,) 
+same => n,Gotoif($["${optiune}" = "1"]?sayphonetic_2,1) 
+same => n,Gotoif($["${optiune}" = "2"]?sayphonetic,1) 
+same => n,Gotoif($["${optiune}" = "3"]?Reintoarcere_Meniu,1) 
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1)
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) 
+
+;Functie Sayunixtime
+exten => sayunixtime,1,NoOp(${CALLERID(num)} a apelat optiunea: ${optiune}!) 
+same => n,Wait(2) ; Asteapta 2 secunde inainte de raspuns 
+same => n,Flite("The current time is") ; Reda un mesaj audio text-to-speech cu ora exacta
+same => n,Set(Data_Curenta=${EPOCH}) ; Salveaza timestamp-ul curent (UNIX TIME) in variabila locala
+same => n,Playback(silence/1) ; Reda o pauza de o secunda pentru a separa mesajele audio
+same => n,Playback(year) 
+same => n,SayUnixTime(${Data_Curenta},,Y) ; Reda audio anul curent
+same => n,Playback(silence/1) 
+same => n,Playback(month) 
+same => n,SayUnixTime(${Data_Curenta},,B) ; Reda audio luna curenta
+same => n,Playback(silence/1) 
+same => n,Playback(day) 
+same => n,SayUnixTime(${Data_Curenta},,d) ; Reda audio ziua curenta
+same => n,Playback(silence/1)
+same => n,Playback(hours) 
+same => n,SayUnixTime(${Data_Curenta},,H) ; Reda audio ora curenta
+same => n,Playback(silence/1) 
+same => n,Playback(minute) 
+same => n,SayUnixTime(${Data_Curenta},,M) ; Reda audio minutele curente
+same => n,Playback(silence/1) 
+same => n,Playback(second) 
+same => n,SayUnixTime(${Data_Curenta},,S) ; Reda audio secundele curente
+same => n,Playback(beep) ; Sunet de beep ca final
+same => n,NoOp(Timpul curent este: ${STRFTIME(${Data_Curenta},,%H:%M:%S - %d/%m/%Y)}) ; Afisare in CLI a timpului curent
+same => n,Flite("Press 1 to repeat, or 2 for main menu.") ; Reda un mesaj audio text-to-speech in care utilizatorul este informat despre optiunile disponibile
+same => n,NoOp(${TIMEOUT(response)} secunde timp de raspuns!) ; Afisare in CLI timpul maxim de raspuns
+same => n,Read(optiune,,1,,1,) ; Citeste o cifra de la utilizator (1 cifra, 1 incercare, timeout 10 secunde)
+same => n,Gotoif($["${optiune}" = "1"]?sayunixtime,1) ; Daca apasa 1 => revenire in secventa de citire data exacta
+same => n,Gotoif($["${optiune}" = "2"]?Reintoarcere_Meniu,1) ; Daca apasa 2 => revenire meniu principal
+same => n,Gotoif($["${optiune}" = ""]?Erori,Timp_Expirat_IAX,1) ; Daca nu apasa nimic => redirectionare Timp_Expirat
+same => n,Goto(Erori,Optiune_Gresita_IAX,1) ; Daca a apasat o cifra invalida => redirectionare Optiune_Gresita
+
+; Implementare Reintoarcere_Meniu
+exten => Reintoarcere_Meniu,1,NoOp(${CALLERID(num)} se reintoarce in meniul SAY!) ; Afisare in CLI care spune ca apelantul se reintoarce in meniul SAY
+same => n,Flite("You are back in the SAY functions menu!") ; Reda un mesaj audop text-to-speech care confirma revenirea utilizatorului in meniul SAY
+same => n,Goto(SAY,555,6) ; Redirectionare inapoi in contextul SAY, extensia 555, prioritatea a 6-a pentru a putea reselecta optiunile
+
+[Erori] ; Contextul pentru erorile probabile in momentul folosirii functiilor SIP si IAX
+
+; Pentru IAX
+exten => Optiune_Gresita_IAX,1,NoOp(Optiunea: ${optiune} nu este valida!) ; Afisare in CLI care spune ca optiunea a fost aleasa gresit
+same => n,Flite("Invalid option. Goodbye") ; Reda un mesaj audio text-to-speech care spune ca optiunea nu este valida
+same => n,Goto(Generare_Sunete,Sunet_Inchidere,1) ; Merge la eticheta Sunet_Inchidere din contextul "Generare_Sunete" pentru a genera sunetul de inchidere si de a termina apelul
+
+exten => Timp_Expirat_IAX,1,NoOp(Timp expirat pentru introducerea optiunii!) ; Afisare in CLI care spune ca a expirat timpul
+same => n,Flite("Time expired. Goodbye!") ; Mesaj audio text-to-speech: timpul a expirat
+same => n,Goto(Generare_Sunete,Sunet_Inchidere,1) ; Merge la eticheta Sunet_Inchidere din contextul "Generare_Sunete" pentru a genera sunteul de inchidere si de a termina apelul
+
+; Pentru SIP
+exten => Optiune_Gresita_SIP,1,NoOp(Optiunea: ${optiune} nu este valida!) 
+same => n,Flite("Invalid option. Goodbye") 
+same => n,Hangup() ; Inchide apelul dupa executarea comenzii
+
+exten => Timp_Expirat_SIP,1,NoOp(Timp expirat pentru introducerea optiunii)
+same => n,Flite("Time expired. Goodbye!") 
+same => n,Hangup() ; Inchide apelul dupa executarea comenzii
+
+exten => PIN_Gresit,1,NoOp(${CALLERID(num)} a introdus un PIN gresit!) ; Afisare in CLI cine a introdus un PIN gresit
+same => n,Flite("Wrong PIN. Goodbye") ; Mesaj audio text-to-speech: PIN Gresit
+same => n,Hangup(); Inchide apelul dupa executarea comenzii
+
+[Generare_Sunete] ; Context pentru generarea sunetelor de apel si inchidere apel in principal pentru functiile IAX
+
+exten => Sunet_Apel,1,NoOp(Generare Ringing pentru IAX!) 
+same => n,PlayTones(ring) ; Genereaza totul de apel (ringing)
+same => n,Wait(3) ; Asteapta 3 secunde cu tonul activ
+same => n,StopPlayTones() ; Opreste tonul de apel
+same => n,Return() ; Revine la contextul care a apelat Gosub
+
+exten => Sunet_Inchidere,1,NoOp(Generare Hangup!) 
+same => n,PlayTones(busy) ; Genereaza tonul de inchidere (hangup)
+same => n,Wait(3) ; Asteapta 3 secunde cu tonul activ
+same => n,Hangup() ; Inchide apelul dupa simularea tonului de inchidere
+ 
+;
+; SIP Configuration example for Asterisk
+;
+; Note: Please read the security documentation for Asterisk in order to
+; 	understand the risks of installing Asterisk with the sample
+;	configuration. If your Asterisk is installed on a public
+;	IP address connected to the Internet, you will want to learn
+;	about the various security settings BEFORE you start
+;	Asterisk. 
+;
+[general]
+context=default    ; Default context for incoming calls
+disallow=all       ; First disallow all codecs ; Dezactiveaza toate codecurile  implicite (o resetare), pentru a putea folosi doar ce codecuri dorim pe urma
+allow=ulaw         ; Permite codecul uLaw - folosit frecvent in SUA/Canada, ofera calitate buna a vocii si este ideal pentru testare
+allow=alaw         ; Allow codecs in order of preference ; Similar cu uLaw dar este folosit in Europa si alte regiuni
+allow=gsm          ; Codec eficient, fara licenta, folosit frecvent in Asterisk. Calitate medie, consum redus de banda (aprox 13 Kbps)
+allow=ilbc         ; Codec eficient pentru retele cu pierderi, ofera calitate decenta cu latime de banda mica. Necesita resurse CPU mai mari
+allow=h264         ; Permite codec h264 pentru apeluri video
+allow=h263         ; Permite codec h263 care e o varianta mai veche si de rezerva pentru h264
+
+[1000]
+type=friend
+host=dynamic
+secret=1234
+context=internal
+dtmfmode=rfc2833
+nat=yes
+canreinvite=no
+videosupport=yes
+allow=h264
+allow=h263
+
+;Numere de telefon adaugate in functie de X=2 Y=2 Z=3
+
+[1223] ; Configuratia pentru utilizatorul SIP cu extensia 1223
+type=friend
+; - friend folosim pentru ca poate initia cat si primi apeluri
+; - peer e doar pentru a primi apeluri
+; - user poate doar initia apeluri
+host=dynamic ; Nu avem IP fix, deci folosim IP dinamic deoarece terminalul se va inregistra singur la server
+secret=1223 ; Parola
+context=Abonati_SIP ; Contextul de reguli unde este trimis in extensions.conf
+dtmfmode=rfc2833 ; Seteaza modul de trimitere a tonurilor DTMF (taste apasate). rfc2933 este preferat pentru apelori VoIP
+nat=yes ; Ajuta Asterisk sa comunice corect cu terminalul aflat in spatele unui  router
+canreinvite=no ; Vocea trece prin Asterisk, nu direct intre terminale
+
+; Functiile de mai jos sunt optionale in caz ca dorim suport video la apeluri
+;videosupport=yes
+;allow=h264
+;allow=h263
+
+[2223] ; Configuratia pentru utilizatorul SIP cu extensia 2223
+type=friend
+host=dynamic 
+secret=2223 
+context=Abonati_SIP 
+dtmfmode=rfc2833 
+nat=yes 
+canreinvite=no 
+
+
+[5223] ; Configuratia pentu utilizatorul SIP cu extensia 5223
+type=friend
+host=dynamic
+secret=5223
+context=Abonati_SIP
+dtmfmode=rfc2833
+nat=yes
+canreinvite=no
+
+[6223] ; Configuratia pentru utilizatorul SIP cu extensia 6223 
+type=friend
+host=dynamic
+secret=6223
+context=Abonati_SIP
+dtmfmode=rfc2833
+nat=yes
+canreinvite=no
+
+ 
+
+; Inter-Asterisk eXchange driver definition
+
+[general]
+[general]
+disallow=all ; Dezactiveazaz toate codecurile implicite (o resetare), pentru a putea folosi doar ce codecuri dorim pe urma 
+allow=ulaw ; Permite codecul uLaw - folosit frecvent in SUA/Canada, ofera calitate buna a vocii si este ideal pentru testare 
+allow=alaw ; Allow codecs in order of preference ; Similar cu uLaw dar este folosit in Europa si alte regiuni
+allow=gsm ; Codec eficient, fara licenta, folosit frecvent in Asterisk. Calitate medie, consum redus de banda (aprox 13 Kbps)
+allow=ilbc ; Codec eficient pentru retele cu pierderi, ofera calitate decenta cu latime de banda mica. Necesita resurse CPU mai mari 
+
+[2000]
+type=friend
+host=dynamic
+secret=1234
+context=internal
+qualify=yes
+dtmfmode=rfc2833
+
+;Numere de telefon adaugate in functie de XYZ
+
+[3223] ; Configuratia pentru utilizatorul IAX cu extensia 3223
+type=friend
+; friend folosim pentru ca poate initia cat si primi apeluri 
+; peer e doar pentru a primi apeluri
+; user poate doar initia apeluri
+host=dynamic ; - Nu avem IP fix, deci folosim IP dinamic deoarece terminalul se va inregistra singur la server
+secret=3223 ; - Parola
+context=Abonati_IAX ; Contextul de reguli unde este trimis in extensions.conf
+qualify=yes ; Asterisk trimite ping-uri periodice catre dispozitiv pentru a mentine conexiunea activa si a verifica daca raspunde.
+dtmfmode=rfc2833 ; Seteaza modul de trimitere a tonurilor DTMF (taste apasate). rfc2833 este preferat pentru apeluri VoIP
+callerid="3223" <3223> ; Seteaza numele si numarul afisat la destinatarul apelului (CallerID)
+
+[4223] ; Configuratia pentru utilizatorul IAX cu extensia 4223
+type=friend
+host=dynamic 
+secret=4223 
+context=Abonati_IAX
+qualify=yes 
+dtmfmode=rfc2833 
+callerid="4223" <4223> 
+ 
+[general]
+#include meetme_general_additional.conf ; Include configurarile suplimentare generate automat
+#include meetme_general_custom.conf ; Include configurarile personalizate de conferinta 
+[rooms]
+#include meetme_additional.conf ; Include salile de conferinta suplimentare definite extern
+
+conf => 1010,1234,5678
+
+;conf => Nr_camera,parola_participant,parola_admin
+
+
+
